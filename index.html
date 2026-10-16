@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Pacman Arcade Humano</title>
+<style>
+  body { background:#000; display:flex; flex-direction:column; align-items:center; margin:0; color:#fff; font-family:Arial, sans-serif; }
+  canvas { background:#000; border:2px solid #fff; margin-top:10px; }
+  .controls {
+    margin-top: 10px;
+    display: grid;
+    grid-template-columns: 80px 80px 80px;
+    grid-template-rows: 80px 80px 80px;
+    gap: 5px;
+  }
+  .btn {
+    background:#222;
+    color:#fff;
+    font-size:30px;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    border-radius:10px;
+    user-select:none;
+    border:2px solid #555;
+  }
+  .btn:active { background:#555; }
+  .hud-top {
+    margin-top:5px;
+    text-align:center;
+  }
+  .start-screen, .win-screen {
+    position:absolute;
+    top:0; left:0;
+    width:100%; height:100%;
+    background:rgba(0,0,0,0.85);
+    display:flex;
+    flex-direction:column;
+    justify-content:center;
+    align-items:center;
+    color:#fff;
+    z-index:10;
+  }
+  .start-btn, .win-btn {
+    margin-top:15px;
+    padding:10px 20px;
+    background:#ffcc00;
+    color:#000;
+    border-radius:8px;
+    font-weight:bold;
+    cursor:pointer;
+  }
+  .skin-select {
+    margin-top:5px;
+    display:flex;
+    gap:8px;
+    justify-content:center;
+    align-items:center;
+    font-size:12px;
+  }
+  .skin-btn {
+    padding:4px 8px;
+    border-radius:6px;
+    border:1px solid #555;
+    cursor:pointer;
+  }
+</style>
+</head>
+<body>
+
+<div class="hud-top">
+  <div>HUMAN ARCADE v1.0 – PACMAN</div>
+  <div class="skin-select">
+    <span>Skin:</span>
+    <button class="skin-btn" data-skin="classic">Classic</button>
+    <button class="skin-btn" data-skin="neon">Neon</button>
+    <button class="skin-btn" data-skin="dark">Dark</button>
+  </div>
+</div>
+
+<canvas id="game" width="448" height="496"></canvas>
+
+<div class="controls">
+  <div></div>
+  <div class="btn" id="up">▲</div>
+  <div></div>
+
+  <div class="btn" id="left">◀</div>
+  <div></div>
+  <div class="btn" id="right">▶</div>
+
+  <div></div>
+  <div class="btn" id="down">▼</div>
+  <div></div>
+</div>
+
+<div class="start-screen" id="startScreen">
+  <h1>HUMAN ARCADE – PACMAN</h1>
+  <p>SCAN TO PLAY – INSERT HUMAN TO CONTINUE</p>
+  <button class="start-btn" id="startBtn">START</button>
+</div>
+
+<div class="win-screen" id="winScreen" style="display:none;">
+  <h1>¡VICTORIA!</h1>
+  <p>Has comido todos los puntos</p>
+  <button class="win-btn" id="winBtn">REINICIAR</button>
+</div>
+
+<audio id="sndEat" src="https://actions.google.com/sounds/v1/cartoon/wood_plank_flicks.ogg"></audio>
+<audio id="sndDeath" src="https://actions.google.com/sounds/v1/cartoon/clang_and_wobble.ogg"></audio>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+const TILE = 16;
+
+// SKINS
+let skin = {
+  pacmanColor: "yellow",
+  wallColor: "#0000ff",
+  ghostColors: ["red","pink","cyan"],
+  bgColor: "#000",
+  dotColor: "#fff"
+};
+
+function setSkin(type){
+  if(type==="classic"){
+    skin = {
+      pacmanColor:"yellow",
+      wallColor:"#0000ff",
+      ghostColors:["red","pink","cyan"],
+      bgColor:"#000",
+      dotColor:"#fff"
+    };
+  } else if(type==="neon"){
+    skin = {
+      pacmanColor:"#ffff00",
+      wallColor:"#00ffff",
+      ghostColors:["#ff00ff","#00ff00","#ff8800"],
+      bgColor:"#000022",
+      dotColor:"#ffffff"
+    };
+  } else if(type==="dark"){
+    skin = {
+      pacmanColor:"#ffcc00",
+      wallColor:"#333333",
+      ghostColors:["#ff4444","#ff8888","#bbbbbb"],
+      bgColor:"#000000",
+      dotColor:"#cccccc"
+    };
+  }
+}
+
+// MAPA ORIGINAL
+const originalMap = [
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  [1,2,2,2,2,2,2,2,2,2,2,2,2,1,1,2,2,2,2,2,2,2,2,2,2,2,2,1],
+  [1,2,1,1,1,1,2,1,1,1,1,1,2,1,1,2,1,1,1,1,1,1,2,1,1,1,2,1],
+  [1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1],
+  [1,2,1,1,1,1,2,1,1,1,1,1,2,1,1,2,1,1,1,1,1,1,2,1,1,1,2,1],
+  [1,2,2,2,2,2,2,2,2,2,2,2,2,1,1,2,2,2,2,2,2,2,2,2,2,2,2,1],
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+];
+
+let map = JSON.parse(JSON.stringify(originalMap));
+
+// PACMAN
+let pacman = { x:14, y:3, dirX:0, dirY:0, speed:0.12 };
+
+// FANTASMAS (ALEJADOS)
+let ghosts = [
+  { x:2,  y:1, colorIndex:0, dirX:1,  dirY:0 },
+  { x:25, y:1, colorIndex:1, dirX:-1, dirY:0 },
+  { x:2,  y:5, colorIndex:2, dirX:0,  dirY:1 }
+];
+
+// PUNTOS Y VIDAS
+let score = 0;
+let lives = 3;
+
+// ESTADO
+let keys = {};
+let gameRunning = false;
+let mouthAngle = 0;
+let mouthDir = 1;
+
+// SONIDOS
+const sndEat = document.getElementById("sndEat");
+const sndDeath = document.getElementById("sndDeath");
+
+// CONTROLES
+document.addEventListener("keydown", e => {
+  keys[e.key] = true;
+});
+document.addEventListener("keyup", e => {
+  keys[e.key] = false;
+});
+
+// BOTONES TÁCTILES
+document.getElementById("up").onclick = () => tryMove(0,-1);
+document.getElementById("down").onclick = () => tryMove(0,1);
+document.getElementById("left").onclick = () => tryMove(-1,0);
+document.getElementById("right").onclick = () => tryMove(1,0);
+
+// SKIN BUTTONS
+document.querySelectorAll(".skin-btn").forEach(btn=>{
+  btn.onclick = () => setSkin(btn.dataset.skin);
+});
+
+// START
+document.getElementById("startBtn").onclick = () => {
+  document.getElementById("startScreen").remove();
+  gameRunning = true;
+};
+
+// VICTORIA
+document.getElementById("winBtn").onclick = () => {
+  document.getElementById("winScreen").style.display = "none";
+  score = 0;
+  lives = 3;
+  resetGameState();
+  gameRunning = true;
+};
+
+// SOLO gira si puede avanzar
+function tryMove(dx, dy){
+  if (!isWall(pacman.x + dx, pacman.y + dy)) {
+    pacman.dirX = dx;
+    pacman.dirY = dy;
+  }
+}
+
+// FUNCIONES
+function resetGameState(){
+  pacman.x = 14;
+  pacman.y = 3;
+
+  ghosts = [
+    { x:2,  y:1, colorIndex:0, dirX:1,  dirY:0 },
+    { x:25, y:1, colorIndex:1, dirX:-1, dirY:0 },
+    { x:2,  y:5, colorIndex:2, dirX:0,  dirY:1 }
+  ];
+
+  map = JSON.parse(JSON.stringify(originalMap));
+}
+
+function isWall(x,y){
+  let col=Math.round(x), row=Math.round(y);
+  if(row<0||row>=map.length||col<0||col>=map[0].length) return true;
+  return map[row][col]===1;
+}
+
+function eatDot(col,row){
+  if(map[row][col]===2){
+    map[row][col]=0;
+    score+=10;
+    sndEat.currentTime = 0;
+    sndEat.play().catch(()=>{});
+  }
+}
+
+function checkWin(){
+  for(let r=0;r<map.length;r++){
+    for(let c=0;c<map[0].length;c++){
+      if(map[r][c]===2) return false;
+    }
+  }
+  return true;
+}
+
+function movePacman(){
+  if(keys["ArrowUp"])    tryMove(0,-1);
+  if(keys["ArrowDown"])  tryMove(0,1);
+  if(keys["ArrowLeft"])  tryMove(-1,0);
+  if(keys["ArrowRight"]) tryMove(1,0);
+
+  let speed = pacman.speed;
+
+  let nx=pacman.x+pacman.dirX*speed;
+  let ny=pacman.y+pacman.dirY*speed;
+
+  if(!isWall(nx,pacman.y)) pacman.x=nx;
+  if(!isWall(pacman.x,ny)) pacman.y=ny;
+
+  eatDot(Math.round(pacman.x), Math.round(pacman.y));
+
+  mouthAngle += mouthDir*0.08;
+  if(mouthAngle>0.6) mouthDir=-1;
+  if(mouthAngle<0.1) mouthDir=1;
+
+  if(checkWin()){
+    gameRunning = false;
+    document.getElementById("winScreen").style.display = "flex";
+  }
+}
+
+function moveGhosts(){
+  ghosts.forEach(g=>{
+
+    // IA estable: solo cambia dirección en el centro de casilla
+    if(Math.abs(g.x - Math.round(g.x)) < 0.1 &&
+   Math.abs(g.y - Math.round(g.y)) < 0.1){
+
+  let dirs = [
+    {x:1, y:0},
+    {x:-1, y:0},
+    {x:0, y:1},
+    {x:0, y:-1}
+  ];
+
+  let validDirs = dirs.filter(d => !isWall(g.x + d.x, g.y + d.y));
+
+  // Si no hay direcciones válidas → retrocede
+  if(validDirs.length === 0){
+    g.dirX = -g.dirX;
+    g.dirY = -g.dirY;
+    return;
+  }
+
+  // IA suave: 70% aleatorio, 30% persecución
+  let chosen = validDirs[Math.floor(Math.random() * validDirs.length)];
+
+  if (Math.random() < 0.5) {
+    let dx = pacman.x - g.x;
+    let dy = pacman.y - g.y;
+
+    if (Math.abs(dx) > Math.abs(dy)) {
+      chosen = {x:Math.sign(dx), y:0};
+    } else {
+      chosen = {x:0, y:Math.sign(dy)};
+    }
+
+    // Si persecución apunta a pared, usar aleatorio
+    if(isWall(g.x + chosen.x, g.y + chosen.y)){
+      chosen = validDirs[Math.floor(Math.random() * validDirs.length)];
+    }
+  }
+
+  g.dirX = chosen.x;
+  g.dirY = chosen.y;
+}
+
+
+    let nx=g.x+g.dirX*0.08;
+    let ny=g.y+g.dirY*0.08;
+
+    if(!isWall(nx,g.y)) g.x=nx;
+    if(!isWall(g.x,ny)) g.y=ny;
+
+    if(Math.abs(g.x - pacman.x) < 0.5 && Math.abs(g.y - pacman.y) < 0.5){
+
+      lives--;
+
+      sndDeath.currentTime = 0;
+      sndDeath.play().catch(()=>{});
+
+      resetGameState();
+
+      if(lives <= 0){
+        alert("GAME OVER — SCORE: " + score);
+        lives = 3;
+        score = 0;
+        map = JSON.parse(JSON.stringify(originalMap));
+      }
+    }
+  });
+}
+
+function drawMap(){
+  ctx.fillStyle = skin.bgColor;
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  for(let r=0;r<map.length;r++){
+    for(let c=0;c<map[0].length;c++){
+      if(map[r][c]===1){
+        ctx.fillStyle=skin.wallColor;
+        ctx.fillRect(c*TILE,r*TILE,TILE,TILE);
+      } else {
+        if(map[r][c]===2){
+          ctx.fillStyle=skin.dotColor;
+          ctx.beginPath();
+          ctx.arc(c*TILE+8,r*TILE+8,2,0,Math.PI*2);
+          ctx.fill();
+        }
+      }
+    }
+  }
+}
+
+function drawPacman(){
+  ctx.fillStyle=skin.pacmanColor;
+  ctx.beginPath();
+
+  let angleStart = 0;
+  let angleEnd = Math.PI*2;
+
+  if(pacman.dirX===1){
+    angleStart = mouthAngle;
+    angleEnd = Math.PI*2 - mouthAngle;
+  } else if(pacman.dirX===-1){
+    angleStart = Math.PI + mouthAngle;
+    angleEnd = Math.PI - mouthAngle;
+  } else if(pacman.dirY===-1){
+    angleStart = -Math.PI/2 + mouthAngle;
+    angleEnd = Math.PI*1.5 - mouthAngle;
+  } else if(pacman.dirY===1){
+    angleStart = Math.PI/2 + mouthAngle;
+    angleEnd = Math.PI/2 - mouthAngle + Math.PI*2;
+  }
+
+  ctx.arc(pacman.x*TILE+8,pacman.y*TILE+8,7,angleStart,angleEnd);
+  ctx.lineTo(pacman.x*TILE+8,pacman.y*TILE+8);
+  ctx.fill();
+}
+
+function drawGhosts(){
+  ghosts.forEach((g,i)=>{
+    ctx.fillStyle=skin.ghostColors[g.colorIndex % skin.ghostColors.length];
+    ctx.beginPath();
+    ctx.arc(g.x*TILE+8,g.y*TILE+8,7,Math.PI,0);
+    ctx.lineTo(g.x*TILE+1,g.y*TILE+8+7);
+    ctx.lineTo(g.x*TILE+4,g.y*TILE+8+5);
+    ctx.lineTo(g.x*TILE+8,g.y*TILE+8+7);
+    ctx.lineTo(g.x*TILE+12,g.y*TILE+8+5);
+    ctx.lineTo(g.x*TILE+15,g.y*TILE+8+7);
+    ctx.closePath();
+    ctx.fill();
+  });
+}
+
+function drawHUD(){
+  ctx.fillStyle="#fff";
+  ctx.font="16px Arial";
+  ctx.fillText("Score: "+score,10,490);
+
+  let hearts="❤❤❤".slice(0,lives);
+  ctx.fillText("Lives: "+hearts,350,490);
+}
+
+function loop(){
+  if(gameRunning){
+    movePacman();
+    moveGhosts();
+  }
+
+  drawMap();
+  drawPacman();
+  drawGhosts();
+  drawHUD();
+
+  requestAnimationFrame(loop);
+}
+
+setSkin("classic");
+loop();
+</script>
+
+</body>
+</html>
